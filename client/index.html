@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+    <script src="layui/layui.js"></script>
+    <link rel="stylesheet" href="layui/css/layui.css">
+</head>
+<body>
+<script>
+    layui.use('jquery', function () {
+        var $ = layui.jquery;
+        $.ajax({
+            type: "GET",
+            url: "http://117.41.229.122:8004/getList.asp",
+            dataType: "jsonp",
+            success: function (data) {
+                initIm(data);
+            }
+        });
+    });
+
+    function initIm(imdata) {
+        imdata = {
+            "mine": {
+                "username": "爱巢家居家纺店",
+                "id": "111",
+                "status": "online",
+                "avatar": "http://cdn.firstlinkapp.com/upload/2016_6/1465575923433_33812.jpg"
+            },
+            "friend": [
+                {
+                    "groupname": "店铺1",
+                    "id": "188639248",
+                    "mall_statu": true,
+                    "nickname": "pdd18863924870",
+                    "token": "17946bcb5ee1408b239c34eab4e027e4",
+                    "use_ip": "ws://111.231.152.119:88"
+                }
+            ]
+        }
+
+        layui.use('layim', function (layim) {
+                layim.config({
+                    isgroup: false,
+                    //notice: true,
+                    init: imdata
+                    //msgbox: layui.cache.dir + 'css/modules/layim/html/msgbox.html'
+                });
+
+                var token = [];
+                var mall = new Map();
+                for (i in imdata.friend) {
+                    info = imdata.friend[i];
+                    token.push(info["token"]);
+                    mall.set(info["token"], info["id"]);
+                }
+
+                version = 2;
+                var socket = new WebSocket('ws://127.0.0.1:8888/zkz?access_token=' + token.join(',') + '&client=web&role=mall_cs');
+
+                layim.on('sendMessage', function (res) {
+                    sjc = Math.round(new Date().getTime() / 1000).toString()
+                    request_id = sjc + RandomNumBoth(100000, 999999)
+                    msg = {
+                        access_token: data.access_token,
+                        pdd: {
+                            cmd: "send_message",
+                            request_id: request_id,
+                            message: {
+                                to: {
+                                    role: "user",
+                                    uid: res.to.id.toString()
+                                },
+                                from: {
+                                    role: "mall_cs",
+                                    uid: mall.get(data.access_token)
+                                },
+                                ts: sjc,
+                                content: res.mine.content,
+                                type: 0,
+                                is_aut: 0,
+                                status: "read",
+                                is_read: 1,
+                            }
+                        }
+                    }
+                    socket.send(JSON.stringify(msg));
+                });
+
+                request_id = 0;
+                //监听收到的消息
+                socket.onmessage = function (res) {
+                    data = JSON.parse(res.data.toLowerCase());
+
+                    switch (data.pdd.response) {
+                        case "auth":
+                            if (data.pdd.auth.result == "ok" && request_id == 0) {
+                                request_id = Math.round(new Date().getTime() / 1000).toString() + RandomNumBoth(100000, 999999);
+                                msg = {
+                                    access_token: data.access_token,
+                                    pdd: {
+                                        request_id: request_id,
+                                        cmd: "latest_conversations",
+                                        need_unreply_time: true,
+                                        page: 1,
+                                        size: 20,
+                                        version: version
+                                    }
+                                }
+                                socket.send(JSON.stringify(msg));
+                            }
+                            break;
+                        case "latest_conversations":
+                            if (data.pdd.request_id != request_id) {
+                                return;
+                            }
+
+                            for (i in data.pdd.conversations) {
+                                con = data.pdd.conversations[i];
+
+                                msg = {
+                                    type: "friend" //聊天窗口来源类型，从发送消息传递的to里面获取
+                                    , content: getContent(con.type, con.content) //消息内容
+                                    , timestamp: con.ts * 1000 //服务端时间戳毫秒数。注意：如果你返回的是标准的 unix 时间戳，记得要 *1000
+                                    , mine: false //是否我发送的消息，如果为true，则会显示在右方
+                                    , username: con.user_info.nickname //消息来源用户名
+                                    , avatar: con.user_info.avatar  //消息来源用户头像
+                                    , id: con.user_info.uid //消息的来源ID（如果是私聊，则是用户id，如果是群聊，则是群组id）
+                                    , fromid: con.to.uid //消息的发送者id（比如群组中的某个消息发送者），可用于自动解决浏览器多窗口时的一些问题
+                                }
+
+                                if (con.from.role == "mall_cs") {
+                                    msg.mine = true;
+                                    msg.avatar = imdata.mine.avatar;
+                                    msg.username = con.mallName;
+                                    msg.fromid = con.from.uid;
+                                }
+
+                                layim.addList({
+                                    type: 'friend'
+                                    , username: con.user_info.nickname
+                                    , avatar: con.user_info.avatar
+                                    , groupid: msg.fromid //所在的分组id
+                                    , id: con.user_info.uid //好友ID
+                                    //, sign: con.content
+                                });
+
+                                layim.getMessage(msg);
+                            }
+                            break;
+                        case "push","clientpush":
+                            if (data.pdd.response=="clientpush" && data.pdd.request_id == request_id) {
+                                return;
+                            }
+
+                            con = data.pdd.message;
+                            if (typeof(con.info) != "undefined" && con.info.customernumber != 0) {
+                                con.type = 1000;
+                            }
+
+                            msg = {
+                                type: "friend" //聊天窗口来源类型，从发送消息传递的to里面获取
+                                , content: getContent(con.type, con.content) //消息内容
+                                , timestamp: con.ts * 1000 //服务端时间戳毫秒数。注意：如果你返回的是标准的 unix 时间戳，记得要 *1000
+                                , mine: false //是否我发送的消息，如果为true，则会显示在右方
+                                , id: con.from.uid//消息的来源ID（如果是私聊，则是用户id，如果是群聊，则是群组id）
+                                , fromid: con.to.uid //消息的发送者id（比如群组中的某个消息发送者），可用于自动解决浏览器多窗口时的一些问题
+                                , username: imdata.mine.username
+                                , avatar: imdata.mine.avatar
+                            }
+
+                            if (con.from.role == "mall_cs") {
+                                msg.mine = true;
+                                msg.id = con.to.uid;
+                                msg.fromid = con.from.uid;
+                            } else if (layim.cache().history.hasOwnProperty("friend" + con.from.uid)) {
+                                obj = layim.cache().history["friend" + con.from.uid]
+                                msg.username = obj.username;
+                                msg.avatar = obj.avatar;
+                            } else {
+                                msg.username = "游客";
+
+                                layim.addList({
+                                    type: 'friend'
+                                    , username: msg.username
+                                    , avatar: imdata.mine.avatar
+                                    , groupid: msg.fromid //所在的分组id
+                                    , id: msg.id //好友ID
+                                    , sign: msg.content
+                                });
+                            }
+
+                            layim.getMessage(msg);
+                            break;
+                        case "system_push":
+                            if (data.pdd.message.content.indexOf("账户在别处登录") != -1) {
+                                layer.open({
+                                    type: 1
+                                    ,
+                                    title: false //不显示标题栏
+                                    ,
+                                    closeBtn: false
+                                    ,
+                                    area: ['250px', '120px']
+                                    ,
+                                    shade: 0.5
+                                    ,
+                                    id: 'login' //设定一个id，防止重复弹出
+                                    ,
+                                    btn: ['刷新']
+                                    ,
+                                    btnAlign: 'c'
+                                    ,
+                                    moveType: 1 //拖拽模式，0或者1
+                                    ,
+                                    content: '<div style="text-align: center; font-size:15px; padding: 20px; ">' + data.pdd.message.content + '</div>'
+                                    ,
+                                    success: function (layero) {
+                                        var btn = layero.find('.layui-layer-btn');
+                                        btn.find('.layui-layer-btn0').attr({
+                                            href: '/'
+                                        });
+                                    }
+                                });
+                            }
+                    }
+                }
+
+                //连接成功时触发
+                socket.onopen = function () {
+                    var cache = layui.layim.cache();
+                    var local = layui.data('layim')[cache.mine.id]; //获取当前用户本地数据
+
+                    delete local.chatlog;
+
+                    //向localStorage同步数据
+                    layui.data('layim', {
+                        key: cache.mine.id
+                        , value: local
+                    });
+                };
+
+                socket.onclose = function (res) {
+
+                }
+            }
+        )
+        ;
+    }
+
+    function getContent(type, content) {
+        switch (type) {
+            case 0:
+                return content;
+            case 1:
+                return "img[" + content + "]";
+            case 1000:
+                return "a(" + content + ")[拼多多商品链接]";
+        }
+    }
+
+    function RandomNumBoth(Min, Max) {
+        var Range = Max - Min;
+        var Rand = Math.random();
+        var num = Min + Math.round(Rand * Range); //四舍五入
+        return num;
+    }
+</script>
+</body>
+</html>

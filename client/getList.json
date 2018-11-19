@@ -1,0 +1,22 @@
+{
+  "code": 0,
+  "msg": "",
+  "data": {
+    "mine": {
+      "username": "爱巢家居家纺店",
+      "id": "0",
+      "status": "online",
+      "avatar": "http://cdn.firstlinkapp.com/upload/2016_6/1465575923433_33812.jpg"
+    },
+    "friend": [
+      {
+        "groupname": "店铺1",
+        "id": "188639248",
+        "mall_statu": true,
+        "nickname": "pdd18863924870",
+        "token": "aa118c782566f47ecfbed42ceb70baf9",
+        "use_ip": "ws://111.231.152.119:88"
+      }
+    ]
+  }
+}
