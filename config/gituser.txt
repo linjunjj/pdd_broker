@@ -1,3 +1,0 @@
-http://user@117.41.229.122:8000/r/pdd.git
-user
-user123
